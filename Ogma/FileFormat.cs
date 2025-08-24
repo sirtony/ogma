@@ -27,7 +27,7 @@ internal static class FileFormat
         CancellationToken      cancellationToken = default
     ) where TKey : notnull
     {
-        var tmpPath = Path.ChangeExtension( path, "tmp" );
+        var tmpPath = Path.ChangeExtension( path, "ogma.tmp" );
         await using( var file = File.Open( tmpPath, FileMode.Create, FileAccess.Write, FileShare.None ) )
         {
             byte[] header =
@@ -53,19 +53,19 @@ internal static class FileFormat
             if( password is null )
             {
                 await file.WriteAsync( checksum, cancellationToken );
-                await file.WriteUInt32LittleEndianAsync( (uint)data.Length, cancellationToken );
+                await file.WriteUInt32LittleEndianAsync( (uint)compressed.Length, cancellationToken );
                 await file.WriteAsync( compressed, cancellationToken );
             }
             else
             {
                 var       salt      = RandomNumberGenerator.GetBytes( FileFormat.SaltSize );
                 var       nonce     = RandomNumberGenerator.GetBytes( FileFormat.NonceSize );
-                var       key       = await FileFormat.DeriveKeyAsync( password, salt, header );
+                var       key       = await FileFormat.DeriveKeyAsync( password, salt, checksum );
                 using var aes       = new AesGcm( key, FileFormat.TagSize );
                 var       encrypted = new byte[compressed.Length];
                 var       tag       = new byte[FileFormat.TagSize];
 
-                aes.Encrypt( nonce, compressed, encrypted, tag, header );
+                aes.Encrypt( nonce, compressed, encrypted, tag, checksum );
 
                 await file.WriteAsync( salt,     cancellationToken );
                 await file.WriteAsync( nonce,    cancellationToken );
@@ -131,11 +131,11 @@ internal static class FileFormat
             if( password is null )
                 throw new InvalidDataException( "file is encrypted, but no password was provided" );
 
-            var       key = await FileFormat.DeriveKeyAsync( password, salt, header );
+            var       key = await FileFormat.DeriveKeyAsync( password, salt, checksum );
             using var aes = new AesGcm( key, FileFormat.TagSize );
 
             Array.Resize( ref decrypted, data.Length );
-            aes.Decrypt( nonce, data, tag, decrypted, header );
+            aes.Decrypt( nonce, data, tag, decrypted, checksum );
 
             Array.Clear( key,   0, key.Length );
             Array.Clear( salt,  0, salt.Length );

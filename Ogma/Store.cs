@@ -7,6 +7,7 @@ public sealed class Store<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>
 {
     private readonly Dictionary<TKey, TValue> _kvs;
     private readonly string?                  _password;
+    private readonly string                   _path;
 
     public TValue this[ TKey key ]
     {
@@ -19,17 +20,19 @@ public sealed class Store<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>
     public int                         Count   => this._kvs.Count;
     public bool                        IsEmpty => this._kvs.Count == 0;
 
-    public Store( string? password = null )
+    public Store( string path, string? password = null )
     {
-        this._password = password;
         this._kvs      = new();
+        this._password = password;
+        this._path     = path;
     }
 
     // ReSharper disable once MemberCanBePrivate.Global
-    public Store( IEnumerable<KeyValuePair<TKey, TValue>> kvs, string? password = null )
+    public Store( IEnumerable<KeyValuePair<TKey, TValue>> kvs, string path, string? password = null )
     {
         this._kvs      = kvs.ToDictionary( x => x.Key, x => x.Value );
         this._password = password;
+        this._path     = path;
     }
 
     public void Clear()            => this._kvs.Clear();
@@ -53,15 +56,12 @@ public sealed class Store<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>
         return created;
     }
 
-    public ValueTask SaveAsync(
-        string            path,
-        CancellationToken cancellationToken = default
-    )
+    public ValueTask SaveAsync( CancellationToken cancellationToken = default )
     {
         var records = this._kvs.Select( r => new Record<TKey, TValue>( r.Key, r.Value ) );
         var doc     = new Document<TKey, TValue> { Store = [..records] };
 
-        return FileFormat.WriteAsync( path, doc, this._password, cancellationToken );
+        return FileFormat.WriteAsync( this._path, doc, this._password, cancellationToken );
     }
 
     public static async ValueTask<Store<TKey, TValue>> OpenAsync(
@@ -73,7 +73,7 @@ public sealed class Store<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>
         await using var file    = File.Open( path, FileMode.Open, FileAccess.Read, FileShare.Read );
         var             doc     = await FileFormat.ReadAsync<TKey, TValue>( path, password, cancellationToken );
         var             records = doc.Store.Select( r => new KeyValuePair<TKey, TValue>( r.Key, r.Value ) );
-        var             store   = new Store<TKey, TValue>( records, password );
+        var             store   = new Store<TKey, TValue>( records, path, password );
         return store;
     }
 
