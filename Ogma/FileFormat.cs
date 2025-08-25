@@ -3,7 +3,7 @@ using System.Text;
 using Konscious.Security.Cryptography;
 using MongoDB.Bson.IO;
 using MongoDB.Bson.Serialization;
-using ZstdSharp;
+using Snappier;
 
 namespace Ogma;
 
@@ -18,7 +18,6 @@ internal static class FileFormat
     private const           int    ChecksumSize     = 64; // SHA-512
     private const           int    ArgonIterations  = 10;
     private const           int    ArgonMemory      = 20 * 1024;
-    private const           int    CompressionLevel = 22;
 
     public static async ValueTask WriteAsync<TKey, TValue>(
         string                 path,
@@ -47,8 +46,7 @@ internal static class FileFormat
 
             var checksum   = await SHA3_512.HashDataAsync( ms, cancellationToken );
             var data       = ms.ToArray();
-            var compressor = new Compressor( FileFormat.CompressionLevel );
-            var compressed = compressor.Wrap( data ).ToArray();
+            var compressed = Snappy.CompressToArray( data );
 
             if( password is null )
             {
@@ -144,11 +142,15 @@ internal static class FileFormat
 
             data = decrypted;
         }
-
-        var             decompressor = new Decompressor();
-        var             decompressed = decompressor.Unwrap( data ).ToArray();
+        
+        var             decompressed = Snappy.DecompressToArray( data );
         await using var ms           = new MemoryStream( decompressed );
+        var hash = await SHA3_512.HashDataAsync( ms, cancellationToken );
 
+        if( !checksum.SequenceEqual( hash ) )
+            throw new InvalidDataException( "file is corrupted" );
+
+        ms.Position = 0;
         return BsonSerializer.Deserialize<Document<TKey, TValue>>( ms );
     }
 
